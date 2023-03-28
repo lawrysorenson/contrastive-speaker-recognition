@@ -1,11 +1,50 @@
 from zipfile import ZipFile
 import torch
 import torchaudio
+from torchaudio.transforms import Resample
 from torch.utils.data import Dataset
 import random
 from tqdm import tqdm
+from subprocess import Popen, PIPE, STDOUT
+import io
 
 data_path = '../voxceleb_trainer/data/'
+sample_rate = 8000
+
+def pad_to_longest(batch):
+    pairs = type(batch[0]) == tuple
+    if pairs:
+        first, last = zip(*batch)
+        batch = list(first) + list(last)
+    
+    pad_len = max(a.size(1) for a in batch)
+
+    pad_batch = [torch.cat((a, torch.zeros(1, pad_len - a.size(1))), dim=1) for a in batch]
+    
+    if pairs:
+        n = len(pad_batch) // 2
+        first = pad_batch[:n]
+        last = pad_batch[n:]
+        pad_batch = [torch.cat((a, b), dim=0) for a, b in zip(first, last)]
+
+    pad_batch = torch.stack(pad_batch, dim=0)
+
+    return pad_batch   
+
+def wav_transform(audio, orig_sample):
+    resample = Resample(orig_freq=orig_sample, new_freq=sample_rate)
+    resampled = resample(audio)
+
+    audio_end = resampled.size(1)
+
+    # sample length
+    sample_length = 10 * sample_rate # up to ten seconds
+    
+    start = random.randint(0, max(audio_end - sample_length, 0))
+
+    sampled = resampled[:,start:start+sample_length]
+
+    return sampled
 
 class ZipDataset(Dataset):
     def __init__(self, files, test=False):
@@ -28,9 +67,10 @@ class ZipDataset(Dataset):
             print('Loading dataset',path)
 
             sub = zf.namelist()
-            for wav in tqdm(sub, ):
+            for wav in tqdm(sub):
                 if not (wav.endswith('wav') or wav.endswith('m4a')):
                     continue
+                # print(wav, flush=True)
 
                 fid = find_id(wav)
                 if fid not in self.ids:
@@ -42,7 +82,8 @@ class ZipDataset(Dataset):
                     fin, zfc = self.ids[fid]
                     assert zf is zfc
                 self.paths[fin].append(wav)
-                #break
+                
+                break # remove this line
 
         #print(len(self.paths))
         #print(sum(len(i) for i in self.paths))
@@ -74,9 +115,9 @@ class ZipDataset(Dataset):
     def _read(self, zf, path):
         # select random snippet or pad to length
         audio = zf.open(path)
-        audio, sample_rate = torchaudio.load(audio)
-        print(audio.size(), sample_rate)
-        return 0
+        audio, sample_rate = torchaudio.load(audio, format='wav')
+        audio = wav_transform(audio, sample_rate)
+        return audio
     
 
     def getitem_train(self, idx):
@@ -86,14 +127,13 @@ class ZipDataset(Dataset):
 
         out = [self._read(zf, path) for path in sel]
 
-        #print(out)
-        return 0
-        pass
-
+        return tuple(out)
 
     def getitem_test(self, idx):
-        return 1
-        #pass
+        path, fid = self.paths[idx]
+        zf = self.ids[fid]
+        out = self._read(zf, path)
+        return out
 
     def __getitem__(self, idx):
         return self.getitem_test(idx) if self.test else self.getitem_train(idx)
