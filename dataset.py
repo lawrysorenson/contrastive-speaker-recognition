@@ -83,7 +83,7 @@ class ZipDataset(Dataset):
                     assert zf is zfc
                 self.paths[fin].append(wav)
                 
-                break # remove this line
+                # break # remove this line
 
         #print(len(self.paths))
         #print(sum(len(i) for i in self.paths))
