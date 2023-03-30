@@ -12,6 +12,9 @@ data_path = '../voxceleb_trainer/data/'
 sample_rate = 8000
 
 def pad_to_longest(batch):
+    
+    batch, ids = zip(*batch)
+
     pairs = type(batch[0]) == tuple
     if pairs:
         first, last = zip(*batch)
@@ -29,7 +32,7 @@ def pad_to_longest(batch):
 
     pad_batch = torch.stack(pad_batch, dim=0)
 
-    return pad_batch   
+    return pad_batch, torch.tensor(ids)
 
 def wav_transform(audio, orig_sample):
     resample = Resample(orig_freq=orig_sample, new_freq=sample_rate)
@@ -57,6 +60,7 @@ class ZipDataset(Dataset):
 
         self.zfs = []
         self.ids = {}
+        self.ids2cid = {}
         self.idx2ids = []
         self.paths = []
         self.test = test
@@ -74,6 +78,7 @@ class ZipDataset(Dataset):
 
                 fid = find_id(wav)
                 if fid not in self.ids:
+                    self.ids2cid[fid] = len(self.ids)
                     fin = len(self.paths)
                     self.paths.append([])
                     self.ids[fid] = (fin, zf)
@@ -100,6 +105,8 @@ class ZipDataset(Dataset):
 
             self.paths = new_paths
 
+        self.num_classes = len(self.ids)
+
 
     def __del__(self):
         if self.zfs:
@@ -122,18 +129,20 @@ class ZipDataset(Dataset):
 
     def getitem_train(self, idx):
         fid = self.idx2ids[idx]
+        cid = self.ids2cid[fid]
         _, zf = self.ids[fid]
         sel = random.choices(self.paths[idx], k=2)
 
         out = [self._read(zf, path) for path in sel]
 
-        return tuple(out)
+        return tuple(out), cid
 
     def getitem_test(self, idx):
         path, fid = self.paths[idx]
+        cid = self.ids2cid[fid]
         zf = self.ids[fid]
         out = self._read(zf, path)
-        return out
+        return out, cid
 
     def __getitem__(self, idx):
         return self.getitem_test(idx) if self.test else self.getitem_train(idx)

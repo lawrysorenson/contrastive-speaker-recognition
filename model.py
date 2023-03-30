@@ -5,7 +5,7 @@ from torchaudio.transforms import MelSpectrogram
 from dataset import sample_rate
 
 class ContrastiveModel(nn.Module):
-    def __init__(self):
+    def __init__(self, num_classes):
         super(ContrastiveModel, self).__init__()
 
         self.spectrogram = MelSpectrogram(sample_rate)
@@ -14,6 +14,9 @@ class ContrastiveModel(nn.Module):
         self.norm = nn.BatchNorm1d(512)
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(0.2)
+
+        print(num_classes)
+        self.project = nn.Linear(512, num_classes)
 
     def forward(self, x):
 
@@ -31,12 +34,16 @@ class ContrastiveModel(nn.Module):
         x = self.dropout(x)
         
         # reshape again
-        # x = x.reshape(size[0], size[1], 512, -1)
 
         # todo: attention pooling
-        x = x.mean(2)
+        embs = x.mean(2)
 
-        norm = x.norm(dim=1, keepdim=True)
-        x = x / norm
 
-        return x
+        norm = embs.norm(dim=1, keepdim=True)
+        embs = embs / norm
+
+        x = embs.reshape(size[0], size[1], 512, -1)
+
+        preds = self.project(embs)
+
+        return embs, preds

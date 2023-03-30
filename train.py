@@ -4,14 +4,16 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
-
+from tqdm import tqdm
 
 # dataset = ZipDataset(['vox1_dev_wav.zip', 'vox2_dev_wav.zip'])
 dataset = ZipDataset(['vox1_dev_wav.zip'], test=False)
 train_dataloader = DataLoader(dataset, batch_size=10, collate_fn=pad_to_longest)
 # dataset = ZipDataset(['vox2_dev_wav.zip'])
 
-model = ContrastiveModel()
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+model = ContrastiveModel(dataset.num_classes)
 
 def contrastive_loss(y):
     # TODO: temperature
@@ -35,27 +37,39 @@ def contrastive_loss(y):
 
     return losses.mean()
 
-# model = model.cuda()
+model = model.to(device)
 model.train()
 
-objective = nn.CrossEntropyLoss()
+stabalize = nn.CrossEntropyLoss()
 optimizer = optim.Adam(model.parameters(), lr=3e-5)
 
-for epoch in range(1, 2):
+for epoch in range(1, 1000):
     optimizer.zero_grad()
 
-    for x in train_dataloader:
-        # x = x.cuda()
+    progress = tqdm(total=len(train_dataloader), desc=f'Train Epoch: {epoch} Loss: -')
+    for x, y in train_dataloader:
 
-        y = model(x)
+        # double y for pairs
+        y = torch.stack([y, y], dim=1).reshape(-1)
 
-        loss = contrastive_loss(y)
+        x = x.to(device)
+        y = y.to(device)
+
+        embs, pred = model(x)
+
+        # loss = contrastive_loss(pred)
+        loss = stabalize(pred, y)
         loss.backward()
 
         optimizer.step()
         optimizer.zero_grad()
 
-        print(loss.item())
+        accuracy = (pred.argmax(dim=1) == y).float().mean().item()
 
-        # break
+        progress.update(1)
+        progress.set_description(f'Train Epoch: {epoch} Loss: {loss.item():.4f} Accuracy: {accuracy:.4f}')
+
+        break
+    
+    progress.close()
 
