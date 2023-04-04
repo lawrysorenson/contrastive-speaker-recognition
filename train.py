@@ -27,6 +27,8 @@ def contrastive_loss(y):
     # mask diagonal
     sims[mask,mask] = -1000
 
+    sims = sims / 0.2
+
     ext = torch.arange(0, batch, 2)
 
     same = sims[ext, ext+1]
@@ -43,12 +45,15 @@ model.train()
 stabalize = nn.CrossEntropyLoss()
 optimizer = optim.Adam(model.parameters(), lr=3e-5)
 
-for epoch in range(1, 1000):
+for epoch in range(1, 100000):
     optimizer.zero_grad()
 
-    progress = tqdm(total=len(train_dataloader), desc=f'Train Epoch: {epoch} Loss: -')
+    limit = (epoch + 19) // 20
+    i = 0
+    progress = tqdm(total=limit, desc=f'Train Epoch: {epoch} Loss: -')
+    # progress = tqdm(total=len(train_dataloader), desc=f'Train Epoch: {epoch} Loss: -')
     for x, y in train_dataloader:
-
+        
         # double y for pairs
         y = torch.stack([y, y], dim=1).reshape(-1)
 
@@ -57,8 +62,7 @@ for epoch in range(1, 1000):
 
         embs, pred = model(x)
 
-        # loss = contrastive_loss(pred)
-        loss = stabalize(pred, y)
+        loss = 0.01*contrastive_loss(pred) + stabalize(pred, y)
         loss.backward()
 
         optimizer.step()
@@ -69,7 +73,11 @@ for epoch in range(1, 1000):
         progress.update(1)
         progress.set_description(f'Train Epoch: {epoch} Loss: {loss.item():.4f} Accuracy: {accuracy:.4f}')
 
-        break
+        i += 1
+        if i == limit:
+            break
+
+        # break
     
     progress.close()
 
