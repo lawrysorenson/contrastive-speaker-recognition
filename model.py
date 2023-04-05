@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 from torchaudio.transforms import MelSpectrogram
+import torch.nn.functional as F
+import math
 
 from dataset import sample_rate
 
@@ -19,7 +21,6 @@ class ConvBlock(nn.Module):
         x = self.relu(x)
         x = self.dropout(x)
         return x
-
 
 class RepConvBlock(nn.Module):
     def __init__(self, dim, reps, kernel=3):
@@ -57,6 +58,51 @@ class RepConvBlock(nn.Module):
         return x
 
 
+class AttentionPooling(nn.Module):
+    def __init__(self, dim, h=8):
+        super(AttentionPooling, self).__init__()
+
+        self.h = h
+        self.d_k = dim//h
+        
+        self.query = nn.parameter.Parameter(torch.zeros(1, h, 1, self.d_k))
+        self.ks = nn.Linear(dim, self.h * self.d_k)
+        self.vs = nn.Linear(dim, self.h * self.d_k)
+
+        self.w_o = nn.Linear(self.h * self.d_k, dim)
+
+        for p in self.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform_(p)
+
+
+    def forward(self, x):
+
+        x = x.transpose(1, 2)
+
+        batches = x.size(0)
+
+        query = self.query
+        key = self.ks(x).view(batches, -1, self.h, self.d_k).transpose(1, 2)
+        value = self.vs(x).view(batches, -1, self.h, self.d_k).transpose(1, 2)
+    
+        # scores = QK^T/scale
+        # (baches, h, 1, d_k) matmul (batches, h, d_k, length) -> (batches, 8, 1, length)
+        scores = query.matmul(key.transpose(2, 3)) / math.sqrt(self.d_k)
+
+        # (batches, h, 1, length) matmul (batches, h, length, d_k) -> (batches, h, 1, d_k)
+        output = F.softmax(scores, dim=3).matmul(value)
+
+        # concatenate output from all heads
+        # (batches, h, 1, d_k) -> (batches, h * d_k)
+        output = output.reshape(batches, self.h * self.d_k)
+
+        # (batches, h * d_k) -> (batches, dim)
+        output = self.w_o(output)
+
+        return output
+
+
 class ContrastiveModel(nn.Module):
     def __init__(self, num_classes):
         super(ContrastiveModel, self).__init__()
@@ -66,6 +112,8 @@ class ContrastiveModel(nn.Module):
         self.in_proj = ConvBlock(128, 512, 5)
 
         self.reps = nn.ModuleList(RepConvBlock(512, 2) for _ in range(3))
+
+        self.pool = AttentionPooling(512)
 
         self.out_proj = nn.Linear(512, num_classes)
 
@@ -81,8 +129,7 @@ class ContrastiveModel(nn.Module):
         for layer in self.reps:
             x = layer(x)
 
-        # todo: attention pooling rather than mean
-        embs = x.mean(2)
+        embs = self.pool(x)
 
         norm = embs.norm(dim=1, keepdim=True)
         embs = embs / norm
