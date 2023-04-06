@@ -115,7 +115,7 @@ class ContrastiveModel(nn.Module):
 
         self.pool = AttentionPooling(512)
 
-        self.out_proj = nn.Linear(512, num_classes)
+        self.out_proj = nn.Linear(1, 2)
 
     def forward(self, x):
 
@@ -134,9 +134,8 @@ class ContrastiveModel(nn.Module):
         norm = embs.norm(dim=1, keepdim=True)
         embs = embs / norm
 
-        # reshape again
-        x = embs.reshape(size[0], size[1], 512, -1)
+        sims = torch.inner(embs, embs).unsqueeze(dim=2)
 
-        preds = self.out_proj(embs)
+        preds = self.out_proj(sims)
 
         return embs, preds

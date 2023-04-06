@@ -3,17 +3,24 @@ from model import ContrastiveModel
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
+import os
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:0" if 'CUDA_VISIBLE_DEVICES' in os.environ else "cpu")
 
 print('Using device', device)
 
 # dataset = ZipDataset(['vox1_dev_wav.zip', 'vox2_dev_wav.zip'])
 dataset = ZipDataset(['vox1_dev_wav.zip'], test=False)
-train_dataloader = DataLoader(dataset, batch_size=10, collate_fn=pad_to_longest, shuffle=True) # TODO: shuffle
+train_dataset, val_dataset = random_split(dataset, [0.85, 0.15])
+
+train_dataloader = DataLoader(train_dataset, batch_size=10, collate_fn=pad_to_longest, shuffle=True)
+val_dataloader = DataLoader(val_dataset, batch_size=10, collate_fn=pad_to_longest)
 # dataset = ZipDataset(['vox2_dev_wav.zip'])
+
+# test_dataset = ZipDataset(['vox1_test_wav.zip', 'vox2_test_wav.zip'], test=True)
+# test_dataloader = DataLoader(test_dataset)
 
 
 model = ContrastiveModel(dataset.num_classes)
@@ -58,27 +65,33 @@ for epoch in range(1, 100000):
         
         # double y for pairs
         cont_ys = torch.arange(y.size(0)).to(device)
-        y = torch.stack([y, y], dim=1).reshape(-1)
+        cont_ys = torch.stack([cont_ys, cont_ys], dim=1).reshape(-1)
+
+        pair_labels = (cont_ys.unsqueeze(0) == cont_ys.unsqueeze(1)).long()
+        pair_labels = pair_labels.reshape(-1)
+
+        # y = torch.stack([y, y], dim=1).reshape(-1)
+        # y = y.to(device)
 
         x = x.to(device)
-        y = y.to(device)
 
-        embs, pred = model(x)
+        embs, pairs = model(x)
+        pairs = pairs.reshape(-1, 2)
 
         loss, cont_preds = contrastive_loss(embs)
-        loss = 0.5*loss + 0.5*stabalize(pred, y)
+        loss = 0.5*loss + 0.5*stabalize(pairs, pair_labels)
         loss.backward()
 
         optimizer.step()
         optimizer.zero_grad()
 
-        cont_ys = torch.stack([cont_ys, cont_ys], dim=1).reshape(-1)
-        accuracy = (cont_preds == cont_ys).float().mean().item()
+        cont_accuracy = (cont_preds == cont_ys).float().mean().item()
+        pair_accuracy = (pairs.argmax(1) == pair_labels).float().mean().item()
 
         progress.update(1)
-        progress.set_description(f'Train Epoch: {epoch} Loss: {loss.item():.4f} Accuracy: {accuracy:.4f}')
+        progress.set_description(f'Train E: {epoch} L: {loss.item():.4f} C-Acc: {cont_accuracy:.4f}  P-Acc: {pair_accuracy:.4f}')
 
-        # break
+        break
 
         # i += 1
         # if i == limit:
