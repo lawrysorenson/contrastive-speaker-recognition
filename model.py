@@ -10,13 +10,15 @@ class ConvBlock(nn.Module):
     def __init__(self, in_dim, out_dim, kernel=3):
         super(ConvBlock, self).__init__()
 
-        self.conv = nn.Conv1d(in_dim, out_dim, kernel, padding=kernel//2)
+        self.depth_conv = nn.Conv1d(in_dim, out_dim, kernel, padding=kernel//2, groups=in_dim)
+        self.time_conv = nn.Conv1d(out_dim, out_dim, 1)
         self.norm = nn.BatchNorm1d(out_dim)
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(0.2)
 
     def forward(self, x):
-        x = self.conv(x)
+        x = self.depth_conv(x)
+        x = self.time_conv(x)
         x = self.norm(x)
         x = self.relu(x)
         x = self.dropout(x)
@@ -109,13 +111,16 @@ class ContrastiveModel(nn.Module):
 
         self.spectrogram = MelSpectrogram(sample_rate)
 
-        self.in_proj = ConvBlock(128, 512, 5)
+        self.in_proj = ConvBlock(128, 512, 9)
 
-        self.reps = nn.ModuleList(RepConvBlock(512, 2) for _ in range(3))
+        self.reps = nn.ModuleList(RepConvBlock(512, 2, 7) for _ in range(3))
 
         self.pool = AttentionPooling(512)
 
-        self.out_proj = nn.Linear(1, 2)
+        self.out_proj = nn.Linear(512, 1024)
+        self.relu = nn.ReLU()
+        self.out_label = nn.Linear(1024, 2)
+
 
     def forward(self, x):
 
@@ -134,8 +139,19 @@ class ContrastiveModel(nn.Module):
         norm = embs.norm(dim=1, keepdim=True)
         embs = embs / norm
 
-        sims = torch.inner(embs, embs).unsqueeze(dim=2)
+        # sims = torch.inner(embs, embs).unsqueeze(dim=2)
 
-        preds = self.out_proj(sims)
+        # preds = self.out_proj(sims)
 
-        return embs, preds
+        # print(preds.size())
+
+        out = self.out_proj(embs)
+        
+        out = out.unsqueeze(1) + out.unsqueeze(0)
+
+        out = self.relu(out)
+        out = self.out_label(out)
+
+        return embs, out
+
+
