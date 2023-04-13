@@ -6,7 +6,7 @@
 #SBATCH --mem-per-cpu=60G   # RAM per CPU core
 #SBATCH -J "VoxCeleb"   # job name
 #SBATCH --gpus=1
-
+#   #SBATCH --qos=cs
 
 # Set the max number of threads to use for programs using OpenMP. Should be <= ppn. Does nothing if the program doesn't use OpenMP.
 export OMP_NUM_THREADS=$SLURM_CPUS_ON_NODE
