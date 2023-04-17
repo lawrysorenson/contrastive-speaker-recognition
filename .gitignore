@@ -2,4 +2,4 @@ __pycache__
 **.swp
 past
 best_model
-
+slurm*.out

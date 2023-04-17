@@ -52,7 +52,7 @@ def contrastive_loss(y):
 
 model = model.to(device)
 
-class_weights = torch.tensor([1, batch_size/5])
+class_weights = torch.tensor([1.0, 10.0])
 class_weights = class_weights.to(device)
 stabalize = nn.CrossEntropyLoss(weight=class_weights)
 optimizer = optim.Adam(model.parameters(), lr=3e-5)
@@ -167,6 +167,8 @@ for epoch in range(1, 100000):
             early_stop += 1
             if early_stop >= 20:
                 break
+
+    # break
             
 
 # Load the best model
@@ -184,8 +186,10 @@ with torch.no_grad():
         y = y.to(device)
 
         embs, _ = model(x)
-
-        proj = model.out_proj(embs)
+        
+        # for projection
+        # proj = model.out_proj(embs)
+        proj = embs
 
         past.append((proj, y))
 
@@ -193,8 +197,12 @@ with torch.no_grad():
 
         for pp, py in past:
 
+            #comp = torch.inner(pp, proj).unsqueeze(2)
+
+            # for projection
             comp = pp.unsqueeze(0) + proj.unsqueeze(1)
             comp = model.relu(comp)
+
             comp = model.out_label(comp)
             comp = comp.argmax(2)    
             count += comp.size(0)

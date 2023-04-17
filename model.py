@@ -3,8 +3,45 @@ import torch.nn as nn
 from torchaudio.transforms import MelSpectrogram
 import torch.nn.functional as F
 import math
+import random
+import os
+
+device = torch.device("cuda:0" if 'CUDA_VISIBLE_DEVICES' in os.environ else "cpu")
 
 from dataset import sample_rate
+
+def raw_norm(batch):
+
+    mean = batch.mean(dim=1, keepdim=True)
+    std = batch.std(dim=1, keepdim=True)
+
+    return (batch - mean) / std
+
+MAX_TIME_MASK = 60
+MAX_FREQ_MASK = 30
+
+def data_augmentation(batch):
+
+    # TODO: talking in the background noise, rotate randomly?
+    
+    # frequency mask
+    if random.random() < 0.5:
+        f1 = random.randint(0, batch.size(1)-MAX_FREQ_MASK)
+        f2 = random.randint(f1, f1+MAX_FREQ_MASK)
+        batch[:,f1:f2,:] = 0
+    
+    # time mask
+    if random.random() < 0.5:
+        t1 = random.randint(0, batch.size(2)-MAX_TIME_MASK)
+        t2 = random.randint(t1, t1+MAX_TIME_MASK)
+        batch[:,:,t1:t2] = 0
+
+    # noise
+    if random.random() < 0.5:
+        noise = torch.randn(batch.size()).to(device)
+        batch += noise * 0.1 # noise level
+
+    return batch
 
 class ConvBlock(nn.Module):
     def __init__(self, in_dim, out_dim, kernel=3):
@@ -110,10 +147,11 @@ class ContrastiveModel(nn.Module):
         super(ContrastiveModel, self).__init__()
 
         self.spectrogram = MelSpectrogram(sample_rate)
+        self.spec_norm = nn.BatchNorm1d(128)
 
-        self.in_proj = ConvBlock(128, 512, 9)
+        self.in_proj = ConvBlock(128, 512, 21)
 
-        self.reps = nn.ModuleList(RepConvBlock(512, 2, 7) for _ in range(3))
+        self.reps = nn.ModuleList(RepConvBlock(512, 2, 11) for _ in range(3))
 
         self.pool = AttentionPooling(512)
 
@@ -121,13 +159,21 @@ class ContrastiveModel(nn.Module):
         self.relu = nn.ReLU()
         self.out_label = nn.Linear(1024, 2)
 
+        # self.out_label = nn.Linear(1, 2)
+
 
     def forward(self, x):
 
         size = x.size()
         x = x.reshape(size[0] * size[1], *size[2:])
 
+        x = raw_norm(x)
+
         x = self.spectrogram(x)
+        x = self.spec_norm(x)
+
+        if self.training:
+            x = data_augmentation(x)
 
         x = self.in_proj(x)
 
@@ -139,12 +185,12 @@ class ContrastiveModel(nn.Module):
         norm = embs.norm(dim=1, keepdim=True)
         embs = embs / norm
 
+        # simularity
         # sims = torch.inner(embs, embs).unsqueeze(dim=2)
 
-        # preds = self.out_proj(sims)
+        # out = self.out_label(sims)
 
-        # print(preds.size())
-
+        # projection
         out = self.out_proj(embs)
         
         out = out.unsqueeze(1) + out.unsqueeze(0)
