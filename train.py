@@ -188,8 +188,8 @@ with torch.no_grad():
         embs, _ = model(x)
         
         # for projection
-        # proj = model.out_proj(embs)
-        proj = embs
+        proj = model.out_proj(embs)
+        #proj = embs
 
         past.append((proj, y))
 

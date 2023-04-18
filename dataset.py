@@ -41,7 +41,7 @@ def wav_transform(audio, orig_sample):
     audio_end = resampled.size(1)
 
     # sample length
-    sample_length = 4 * sample_rate # up to ten seconds
+    sample_length = 10 * sample_rate # up to ten seconds
     
     start = random.randint(0, max(audio_end - sample_length, 0))
 
